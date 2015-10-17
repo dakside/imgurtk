@@ -49,100 +49,70 @@ __status__ = "Prototype"
 
 ########################################################################
 
-'''
-    Here's how you go about authenticating yourself! The important thing to
-    note here is that this script will be used in the other examples so
-    set up a test user with API credentials and set them up in auth.ini.
-'''
-
+import datetime
+import codecs
 from imgurpython import ImgurClient
 from helpers import get_input, get_config
 
-def whoami(client):
-    '''Request account information from IMGUR server'''
-    acc = client.get_account('me')
-    # print("Account ID : %s" % (acc.id))
-    # print("Account URL: %s" % (acc.url))
-    # print("Account bio: %s" % (acc.bio))
-    return acc
-
-def ensure_loggedin(username):
-    '''Make sure that we have logged in before performing any request.
-    This will return a client object if client is logged in, otherwise None.
-    Exception may be thrown, catch them.
-    '''
-    try:
-        client = reauth()
-        if whoami(client).url != username:
-            client = None
-    except Exception as e:
-        client = None
-    if client is None:
-        print("We need to re-authenticate ...")
-        client = authenticate()
-    if username == whoami(client).url:
-        print("You have been logged in as user: %s" % (username))
-        return client
-    else:
-        return None
+class SimpleImgurClient:
+    def __init__(self, username=''):
+        self.load_config()
+        self.username = username
+        self.client = ImgurClient(self.client_id, self.client_secret)
+        self.client.set_user_auth(self.access_token, self.refresh_token)
+        self.authorization_url = self.client.get_auth_url('pin')
     
-def reauth():
-    ''' Reuse access token
-    '''
-    # Get client ID and secret from auth.ini
-    config = get_config()
-    config.read('auth.ini')
-    client_id = config.get('credentials', 'client_id')
-    client_secret = config.get('credentials', 'client_secret')
-    access_token = config.get('credentials', 'access_token')
-    refresh_token = config.get('credentials', 'refresh_token')
+    def load_config(self):
+        config = get_config()
+        config.read('auth.ini')
+        self.client_id = config.get('credentials', 'client_id')
+        self.client_secret = config.get('credentials', 'client_secret')
+        self.access_token = config.get('credentials', 'access_token')
+        self.refresh_token = config.get('credentials', 'refresh_token')
+    
+    def authenticate(self):
+        print("Get your access PIN here: %s" % (self.authorization_url,))
+        pin = get_input("Please enter your PIN: ")
+        self.authorize(pin)
+    
+    def authorize(self, pin):
+        credentials = self.client.authorize(pin, 'pin')
+        self.client.set_user_auth(credentials['access_token'], credentials['refresh_token'])
+        self.access_token = credentials['access_token']
+        self.refresh_token = credentials['refresh_token']
+        self.save()
+    
+    def save(self):
+        with open('auth.ini', 'w') as sessionfile:
+            sessionfile.write("[credentials]\n")
+            sessionfile.write("client_id={0}\n".format(self.client_id))
+            sessionfile.write("client_secret={0}\n".format(self.client_secret))
+            sessionfile.write("access_token={0}\n".format(self.access_token))
+            sessionfile.write("refresh_token={0}\n".format(self.refresh_token))
 
-    client = ImgurClient(client_id, client_secret)
-    client.set_user_auth(access_token, refresh_token)
-
-    print("Reusing access_token. Here are the details:")
-    print("   Access token:  {0}".format(access_token))
-    print("   Refresh token: {0}".format(refresh_token))
-
-    return client
-
-def authenticate():
-    ''' Authenticate for the first time
-    '''
-    # Get client ID and secret from auth.ini
-    config = get_config()
-    config.read('auth.ini')
-    client_id = config.get('credentials', 'client_id')
-    client_secret = config.get('credentials', 'client_secret')
-
-    client = ImgurClient(client_id, client_secret)
-
-    # Authorization flow, pin example (see docs for other auth types)
-    authorization_url = client.get_auth_url('pin')
-
-    print("Go to the following URL: {0}".format(authorization_url))
-    with open('url.txt', 'w') as urlfile:
-        urlfile.write(authorization_url)
-   
-
-    # Read in the pin, handle Python 2 or 3 here.
-    pin = get_input("Enter pin code: ")
-
-    # ... redirect user to `authorization_url`, obtain pin (or code or token) ...
-    credentials = client.authorize(pin, 'pin')
-    client.set_user_auth(credentials['access_token'], credentials['refresh_token'])
-
-    print("Authentication successful! Here are the details:")
-    print("   Access token:  {0}".format(credentials['access_token']))
-    print("   Refresh token: {0}".format(credentials['refresh_token']))
-    with open('auth.ini', 'w') as sessionfile:
-        sessionfile.write("[credentials]\n")
-        sessionfile.write("client_id={0}\n".format(client_id))
-        sessionfile.write("client_secret={0}\n".format(client_secret))
-        sessionfile.write("access_token={0}\n".format(credentials['access_token']))
-        sessionfile.write("refresh_token={0}\n".format(credentials['refresh_token']))
-
-    return client
+    def whoami(self):
+        '''Request account information from IMGUR server'''
+        acc = self.client.get_account('me')
+        # print("Account ID : %s" % (acc.id))
+        # print("Account URL: %s" % (acc.url))
+        # print("Account bio: %s" % (acc.bio))
+        return acc
+        
+    def backup_myfavs(self, max_page_count=1):
+        imgs = []
+        with codecs.open('myfav.htm', 'w', 'utf-8') as myfav:
+            for page in range(max_page_count):
+                print("Fetching page #%s" % (page,))
+                myfav.write("<h1>Page #%s</h1>" % (page))
+                myfav.write("<table>")
+                myfav.write("<tr><td>Title</td><td>Description</td><td>Datetime</td><td>Link</td></tr>")
+                favs = self.client.get_account_favorites('me', page)
+                for img in favs:
+                    imgs.append(img)
+                    myfav.write("<tr><td>%s</td><td>%s</td><td>%s</td><td><a href='%s'>%s</a><br/></td></tr>\n" % (img.title, img.description, datetime.datetime.fromtimestamp(img.datetime), img.link, img.link))
+                    # myfav.write('<a href="%s">%s</a><br/>\n' % (img.link, img.link))
+                myfav.write("</table>")
+        return imgs
 
 #-----------------------------------------------------------------------------------
 if __name__ == "__main__":

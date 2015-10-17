@@ -58,37 +58,89 @@ __status__ = "Prototype"
 import os
 import argparse
 import sys
-from imgurpython import ImgurClient
-from helpers import get_input, get_config
-from auth import authenticate, reauth, whoami, ensure_loggedin
+from igui import AuthForm
+from auth import SimpleImgurClient
 
-def backup_myfavs(client, max_page_count=2):
-    with open('myfav.htm', 'w') as myfav:
-        for page in range(max_page_count):
-            print("Fetching page #%s" % (page,))
-            myfav.write("<h1>Page #%s</h1>" % (page))
-            favs = client.get_account_favorites('me', page)
-            for img in favs:
-                # print(img.link)
-                myfav.write('<a href="%s">%s</a><br/>\n' % (img.link, img.link))
+from chirptext.leutile import FileTool
+from puchikarui import *
+
+#------------------------------------------------------------------------------
+
+STORE_DIR = FileTool.abspath('./dirs.txt')
+
+#------------------------------------------------------------------------------
+
+class SchemaImgur(Schema):
+    def __init__(self, data_source=None):
+        Schema.__init__(self, data_source)
+        self.add_table('image', 'title description datetime link'.split())
+    
+    def create(self):
+        self.ds().executescript('''
+        -- DROP TABLE IF EXISTS image; 
+        CREATE TABLE IF NOT EXISTS image(title, description, datetime, link PRIMARY KEY);
+        ''')
+
+def is_cached(filename, dirs):
+    for dir in dirs:
+        if os.path.isfile(os.path.join(dir, filename)):
+            return True
+    return False
+
+def get_db_file(client):
+    if client.username and len(client.username.strip()) > 0:
+        return os.path.join('data', client.username.strip() + '.db')
+    else:
+        return 'data/imgur.db'
+
+def dev(client, page):
+    dirs = [ FileTool.abspath('~/Pictures/') ]
+    print(is_cached('test.jpg', dirs))
+    
+    # backup to DB
+    db_path = get_db_file(client)
+    with SchemaImgur(db_path) as db:
+        if not os.path.isfile(db_path) or os.path.getsize(db_path) == 0:
+            db.create()
+        imgs = client.backup_myfavs(page)
+        for img in imgs:
+            img_row = db.image.select_single(where='link = ?', values=[img.link])
+            if img_row:
+                # update?
+                print("This link is ignored because it exists in current database: %s" % (img.link))
+                pass
+            else:
+                print("Saving: %s" % (img.link))
+                db.image.insert([img.title, img.description, img.datetime, img.link])
+        db.ds().commit()
+    pass
+        
+#------------------------------------------------------------------------------
+
+def ensure_loggedin(username):
+    client = SimpleImgurClient(username)
+    try:
+        acc = client.whoami()
+    except:
+        acc = None
+    if acc and acc.url == username:
+        return client # Valid client
+        
+    while not acc or acc.url != username:
+        # try to login again
+        # may be access key is expired
+        client.authenticate()
+        acc = client.whoami()
+    
+    return client
 
 def myinfo(client):
-    acc = whoami(client)
+    acc = client.whoami()
     print("Account ID : %s" % (acc.id))
     print("Account URL: %s" % (acc.url))
     print("Account bio: %s" % (acc.bio))                
                 
-def main():
-    if len(sys.argv) != 2:
-        print("Please run python imgur [username]")
-    else:
-        username = sys.argv[1]
-        client = ensure_loggedin(username)
-        if client:
-            backup_myfavs(client)
-        else:
-            print("Cannot login to IMGUR")
-    
+#------------------------------------------------------------------------------
 
 def main():
     '''Main entry of DaKSiDE IMGUR Toolkit.
@@ -99,32 +151,40 @@ def main():
     parser = argparse.ArgumentParser(description="DaKSiDE IMGUR Toolkit")
     
     # Positional argument(s)
-    parser.add_argument('username', help='Your IMGUR username')
-    parser.add_argument('task', help='What you want to do (backup/info)')
+    parser.add_argument('-u', '--username', help='Your IMGUR username')
+    parser.add_argument('-t', '--task', help='What you want to do (backup/info/gui)')
+    parser.add_argument('-p', '--page', help='Max page count (for backup)')
 
     # Optional argument(s)
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-v", "--verbose", action="store_true")
     group.add_argument("-q", "--quiet", action="store_true")
 
-    # Main script
-    if len(sys.argv) == 1:
-        # User didn't pass any value in, show help
-        parser.print_help()
+    # Parse input arguments
+    args = parser.parse_args()
+    # Now do something ...
+    client = SimpleImgurClient() # no username
+    if args.username:
+        client = ensure_loggedin(args.username)
+
+    if args.task == 'backup':
+        backup_myfavs(client)
+    elif args.task == 'info':
+        myinfo(client)
+    elif args.task == 'gui':
+        frm = AuthForm()
+        frm.run()
     else:
-        # Parse input arguments
-        args = parser.parse_args()
-        # Now do something ...
-        if args.username:
-            client = ensure_loggedin(args.username)
-            if client:
-                if args.task == 'backup':
-                    backup_myfavs(client)
-                else:
-                    myinfo(client)
-            else:
-                print("Cannot login to IMGUR")
+        # Run GUI by default
+        # parser.print_help()
+        # AuthForm().run()
+        try:
+            page = int(args.page)
+        except Exception as e:
+            page = 1
+        dev(client, page)
     pass
+#------------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()

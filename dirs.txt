@@ -1,0 +1,2 @@
+# Write path to your Photos directories here
+C:\Users\foo\Pictures

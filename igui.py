@@ -49,51 +49,13 @@ __status__ = "Prototype"
 
 ########################################################################
 
+import datetime
+from auth import SimpleImgurClient
 import tkinter
-from tkinter import Tk, Frame,Button,Label,Entry
+from tkinter import Tk, Frame, Button, Label, Entry, messagebox
 from tkinter.ttk import Notebook
 from tkinter.messagebox import askokcancel # get canned std dialog
-from imgurpython import ImgurClient
-from helpers import get_input, get_config
 
-class SimpleImgurClient:
-    def __init__(self):
-        self.load_config()
-        self.client = ImgurClient(self.client_id, self.client_secret)
-        self.client.set_user_auth(self.access_token, self.refresh_token)
-        self.authorization_url = self.client.get_auth_url('pin')
-    
-    def load_config(self):
-        config = get_config()
-        config.read('auth.ini')
-        self.client_id = config.get('credentials', 'client_id')
-        self.client_secret = config.get('credentials', 'client_secret')
-        self.access_token = config.get('credentials', 'access_token')
-        self.refresh_token = config.get('credentials', 'refresh_token')
-    
-    def authorize(self, pin):
-        credentials = self.client.authorize(pin, 'pin')
-        self.client.set_user_auth(credentials['access_token'], credentials['refresh_token'])
-        self.access_token = credentials['access_token']
-        self.refresh_token = credentials['refresh_token']
-        self.save()
-    
-    def save(self):
-        with open('auth.ini', 'w') as sessionfile:
-            sessionfile.write("[credentials]\n")
-            sessionfile.write("client_id={0}\n".format(self.client_id))
-            sessionfile.write("client_secret={0}\n".format(self.client_secret))
-            sessionfile.write("access_token={0}\n".format(self.access_token))
-            sessionfile.write("refresh_token={0}\n".format(self.refresh_token))
-
-    def whoami(self):
-        '''Request account information from IMGUR server'''
-        acc = self.client.get_account('me')
-        # print("Account ID : %s" % (acc.id))
-        # print("Account URL: %s" % (acc.url))
-        # print("Account bio: %s" % (acc.bio))
-        return acc
-            
 class AuthForm:
     def __init__(self, client=SimpleImgurClient()):
         self.client = client
@@ -116,9 +78,14 @@ class AuthForm:
         self.btnLogin = Button(self.new_row(), text='Login', command= (lambda: self.login())).pack(side=tkinter.RIGHT)
         self.addInputRow('Username')
         self.btnWho = Button(self.new_row(), text='WhoAmI', command= (lambda: self.whoami())).pack(side=tkinter.RIGHT)
+        self.btnWho = Button(self.new_row(), text='Backup', command= (lambda: self.backup())).pack(side=tkinter.RIGHT)
         
         # Pack everything
         self.pack_rows()
+    
+    def backup(self):
+        self.client.backup_myfavs()
+        messagebox.showinfo("Backup Task", "Favourite Album has been backed up.")
     
     def whoami(self):
         acc = self.client.whoami()
