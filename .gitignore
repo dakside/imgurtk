@@ -2,6 +2,10 @@
 __pycache__/
 *.py[cod]
 auth.ini
+cache.htm
+data/*.db
+dirs*.txt
+
 
 # C extensions
 *.so

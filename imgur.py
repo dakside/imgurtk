@@ -58,6 +58,8 @@ __status__ = "Prototype"
 import os
 import argparse
 import sys
+import codecs
+import datetime
 from igui import AuthForm
 from auth import SimpleImgurClient
 
@@ -93,8 +95,33 @@ def get_db_file(client):
     else:
         return 'data/imgur.db'
 
-def dev(client, page):
+def check_cache(username):
+    dirs = [ x.strip() for x in open('dirs.txt').readlines() ]
+    print("Checking dirs: %s" % (dirs,))
+    # print(is_cached('test.jpg', dirs))
+    
+    db_path = 'data/%s.db' % username
+    with SchemaImgur(db_path) as db:
+        imgs = db.image.select()
+        with codecs.open('cache.htm', 'w', 'utf-8') as myfav:
+            myfav.write("<table>")
+            myfav.write("<tr><td>Title</td><td>Description</td><td>Datetime</td><td>Link</td></tr>")
+            for img in imgs:
+                filename = FileTool.getfullfilename(img.link)
+                if is_cached(filename, dirs):
+                    # print("%s is cached" % filename)
+                    pass
+                else:
+                    myfav.write("<tr><td>%s</td><td>%s</td><td>%s</td><td><a href='%s'>%s</a><br/></td></tr>\n" % (img.title, img.description, datetime.datetime.fromtimestamp(img.datetime), img.link, img.link))
+                    # print("%s is not cached" % filename)
+                    pass
+            myfav.write("</table>")
+    print("Cached to cache.htm")
+    pass
+        
+def backup_to_db(client, page):
     dirs = [ FileTool.abspath('~/Pictures/') ]
+    print("Checking dirs: %s" % (dirs,))
     print(is_cached('test.jpg', dirs))
     
     # backup to DB
@@ -111,7 +138,7 @@ def dev(client, page):
                 pass
             else:
                 print("Saving: %s" % (img.link))
-                db.image.insert([img.title, img.description, img.datetime, img.link])
+                db.image.insert([ img.title, img.description, img.datetime, img.link ])
         db.ds().commit()
     pass
         
@@ -152,7 +179,7 @@ def main():
     
     # Positional argument(s)
     parser.add_argument('-u', '--username', help='Your IMGUR username')
-    parser.add_argument('-t', '--task', help='What you want to do (backup/info/gui)')
+    parser.add_argument('-t', '--task', help='What you want to do (backup/info/gui/db/cc/bc)')
     parser.add_argument('-p', '--page', help='Max page count (for backup)')
 
     # Optional argument(s)
@@ -164,7 +191,7 @@ def main():
     args = parser.parse_args()
     # Now do something ...
     client = SimpleImgurClient() # no username
-    if args.username:
+    if args.task and args.username:
         client = ensure_loggedin(args.username)
 
     if args.task == 'backup':
@@ -174,15 +201,28 @@ def main():
     elif args.task == 'gui':
         frm = AuthForm()
         frm.run()
-    else:
-        # Run GUI by default
-        # parser.print_help()
-        # AuthForm().run()
+    elif args.task == 'db':
         try:
             page = int(args.page)
         except Exception as e:
             page = 1
-        dev(client, page)
+        if args.username:
+            backup_to_db(client, page)
+        else:
+            print("Please specify username")
+    elif args.task == 'cc':
+        if args.username:
+            check_cache(args.username)
+        else:
+            print("Please specify username")
+    elif args.task == 'bc':
+        if args.username:
+            backup_to_db(client, page)
+            check_cache(args.username)
+        else:
+            print("Please specify username")
+    else:
+        parser.print_help()
     pass
 #------------------------------------------------------------------------------
 
